@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Outpost Alpha - Ultimate Edition</title>
+    <style>
+        body { margin: 0; background: #07080c; color: white; font-family: 'Courier New', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
+        canvas { background: #11141a; border: 4px solid #c5a059; box-shadow: 0 0 40px rgba(197, 160, 89, 0.4); max-width: 100%; max-height: 70vh; display: none; }
+        #instructions { margin-top: 5px; text-align: center; font-size: 12px; color: #66fcf1; line-height: 1.4; max-width: 1000px; display: none; }
+        .player-box { display: inline-block; margin: 0 5px; padding: 4px; border: 1px dashed #45f3ff; background: rgba(0,0,0,0.4); font-size: 11px; }
+        
+        /* Boutons tactiles mobiles */
+        #mobileControls { display: none; width: 95%; max-width: 1100px; justify-content: space-between; position: absolute; bottom: 15px; z-index: 10; pointer-events: none; }
+        .touch-btn { display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.15); border: 2px solid #66fcf1; border-radius: 12px; color: white; font-weight: bold; font-size: 22px; width: 70px; height: 70px; pointer-events: auto; user-select: none; -webkit-user-select: none; }
+        .touch-btn:active { background: rgba(102, 252, 241, 0.4); }
+        #actionBtn { width: 140px; font-size: 14px; border-color: #ffd700; background: rgba(255, 215, 0, 0.1); }
+        #actionBtn:active { background: rgba(255, 215, 0, 0.4); }
+        #moveControls { display: flex; gap: 15px; }
+
+        /* Écran d'accueil mobile */
+        #startScreen { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; z-index: 100; }
+        #startBtn { margin-top: 25px; padding: 15px 35px; font-size: 20px; font-family: 'Courier New', sans-serif; font-weight: bold; background-color: #2ed573; border: 3px solid #fff; color: black; border-radius: 8px; cursor: pointer; box-shadow: 0 0 15px #2ed573; }
+        #startBtn:active { background-color: #fff; }
+    </style>
+</head>
+<body>
+
+    <!-- Écran d'accueil anti-blocage mobile -->
+    <div id="startScreen">
+        <div style="font-size: 14px; color: #ffd700; margin-bottom: 10px; letter-spacing: 3px;">⚡ UN JEU DU STUDIO ⚡</div>
+        <h1 style="color: #ff4757; font-size: 28px; margin: 5px; text-shadow: 0 0 10px rgba(255,71,87,0.5);">THOMAS LE MEILLEUR</h1>
+        <p style="color: #66fcf1; font-size: 14px; margin-top: 15px;">Mettez votre téléphone à l'HORIZONTALE</p>
+        <button id="startBtn">ENTRER DANS L'AVANT-POSTE</button>
+    </div>
+
+    <canvas id="gameCanvas" width="1200" height="400"></canvas>
+    
+    <div id="instructions">
+        <div class="player-box"><strong style="color: #2ed573;">🟢 J1 :</strong> Q / D | Action = S</div>
+        <div class="player-box"><strong style="color: #1e90ff;">🔵 J2 :</strong> Manette Stick + ✖</div>
+    </div>
+
+    <div id="mobileControls">
+        <div id="moveControls">
+            <div class="touch-btn" id="btnLeft">◀</div>
+            <div class="touch-btn" id="btnRight">▶</div>
+        </div>
+        <div class="touch-btn" id="actionBtn">🪙 PAYER /<br>ACTION</div>
+    </div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+function isTouchDevice() { return (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)); }
+
+let gameState = "CHARACTER_SELECT"; 
+let currentDay = 1; let timeInPeriod = 0; let isNight = false;
+const TIME_DAY = 54000; const TIME_NIGHT = 18000; 
+
+let raindrops = [];
+let lightningFlash = 0;
+
+const colorsList = ["#1e90ff", "#2ed573", "#ff6b81", "#ff4757", "#ffa502"];
+const colorNames = ["Bleu", "Vert", "Rose", "Rouge", "Jaune"];
+
+let selectUI = { j1: { gender: "M", colorIdx: 1 }, j2: { gender: "F", colorIdx: 0 } };
+
+let p1, p2, hq, nukePayload, mapJeep;
+let weaponRack = { x: 670, y: 310, width: 45, height: 50, price: 2 };   
+let engineerRack = { x: 485, y: 310, width: 45, height: 50, price: 3 }; 
+
+let smuggler = { x: -60, targetX: 570, status: "ARRIVING", active: true };
+
+let citizens = [], enemies = [], coins = [], particles = [], trees = [], structures = [];
+let keys = {}; let gamepadConnected = false; let touchState = { left: false, right: false };
+
+function initGame() {
+    currentDay = 1; timeInPeriod = 0; isNight = false; lightningFlash = 0; raindrops = []; particles = [];
+    p1 = { x: 530, y: 320, width: 20, height: 40, baseSpeed: 4.5, speed: 4.5, gold: 10, maxGold: 30, color: colorsList[selectUI.j1.colorIdx], gender: selectUI.j1.gender, hasJeep: false };
+    p2 = { x: 650, y: 320, width: 20, height: 40, baseSpeed: 4.5, speed: 4.5, gold: 10, maxGold: 30, color: colorsList[selectUI.j2.colorIdx], gender: selectUI.j2.gender, hasJeep: false, buttonPressedPreviously: false };
+    hq = { x: 565, y: 220, width: 70, height: 130, hp: 30, maxHp: 30 };
+    nukePayload = { x: 600, bought: false, deployed: false, speed: 1.5, cost: 15 };
+    mapJeep = { x: 730, y: 325, width: 35, height: 25, state: "BROKEN", repairCost: 5, buyCost: 8 };
+    smuggler = { x: -60, targetX: 570, status: "ARRIVING", active: true };
+    citizens = []; enemies = []; coins = [];
+    trees = [{ x: 180, marked: false, cutProgress: 0 }, { x: 280, marked: false, cutProgress: 0 }, { x: 920, marked: false, cutProgress: 0 }, { x: 1020, marked: false, cutProgress: 0 }];
+    structures = [
+        { type: "wall", side: "left", x: 380, y: 240, width: 30, height: 120, hp: 8, maxHp: 8, level: 1 },
+        { type: "wall", side: "right", x: 840, y: 240, width: 30, height: 120, hp: 8, maxHp: 8, level: 1 },
+        { type: "plot", side: "left", x: 220, buildType: "none", hp: 0, maxHp: 0, level: 0 },
+        { type: "plot", side: "right", x: 980, buildType: "none", hp: 0, maxHp: 0, level: 0 }
+    ];
+    citizens.push({ type: "recruit", x: 540, y: 330, width: 15, height: 30 }, { type: "recruit", x: 640, y: 330, width: 15, height: 30 });
+}
+
+// Lancement du jeu lors de l'appui sur le bouton vert
+document.getElementById("startBtn").addEventListener("click", () => {
+    try { if (audioCtx.state === 'suspended') audioCtx.resume(); } catch(e){}
+    document.getElementById("startScreen").style.display = "none";
+    canvas.style.display = "block";
+    if (!isTouchDevice()) {
+        document.getElementById("instructions").style.display = "block";
+    }
+    initGame();
+    // Lance et synchronise la boucle principale du jeu
+    gameLoop();
+});
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type) {
+    try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        if (type === "shoot") {
+            osc.type = "sawtooth"; osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.12, audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        } else if (type === "coin") {
+            osc.type = "sine"; osc.frequency.setValueAtTime(980, audioCtx.currentTime);
+            osc.frequency.setValueAtTime(1318, audioCtx.currentTime + 0.08);
+            gain.gain.setValueAtTime(0.08, audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+        } else if (type === "siren") {
+            osc.type = "triangle"; osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(440, audioCtx.currentTime + 0.4);
+            gain.gain.setValueAtTime(0.06, audioCtx.currentTime); osc.start(); osc.stop(audioCtx.currentTime + 0.6);
+        }
+    } catch(e) {}
+}
+
+canvas.addEventListener("click", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+    if (gameState === "CHARACTER_SELECT") {
+        if (clickY > 150 && clickY < 190) {
+            if (clickX > 200 && clickX < 320) selectUI.j1.gender = "M";
+            if (clickX > 330 && clickX < 450) selectUI.j1.gender = "F";
+            if (clickX > 750 && clickX < 870) selectUI.j2.gender = "M";
+            if (clickX > 880 && clickX < 1000) selectUI.j2.gender = "F";
+        }
+        if (clickY > 220 && clickY < 260) {
+            if (clickX > 200 && clickX < 450) selectUI.j1.colorIdx = (selectUI.j1.colorIdx + 1) % colorsList.length;
+            if (clickX > 750 && clickX < 1000) selectUI.j2.colorIdx = (selectUI.j2.colorIdx + 1) % colorsList.length;
+        }
+        if (clickX > 500 && clickX < 700 && clickY > 310 && clickY < 360) {
+            p1.gender = selectUI.j1.gender; p1.color = colorsList[selectUI.j1.colorIdx];
+            p2.gender = selectUI.j2.gender; p2.color = colorsList[selectUI.j2.colorIdx];
+            if (isTouchDevice()) document.getElementById("mobileControls").style.display = "flex";
+            gameState = "PLAYING";
+        }
+    } 
+    else if (gameState === "GAMEOVER" || gameState === "VICTORY") {
+        if (clickX > 480 && clickX < 720 && clickY > 240 && clickY < 290) {
+            gameState = "CHARACTER_SELECT";
+            if (isTouchDevice()) document.getElementById("mobileControls").style.display = "none";
+        }
+    }
+});
+
+window.addEventListener("keydown", e => keys[e.key] = true);
+window.addEventListener("keyup", e => keys[e.key] = false);
